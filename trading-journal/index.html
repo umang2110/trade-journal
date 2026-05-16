@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeJournal Pro | Your Trading Companion</title>
+    <meta name="description" content="Free trading journal to track trades, analyze performance, and improve your trading discipline.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login/Signup Overlay -->
+    <div class="auth-overlay" id="auth-overlay">
+        <div class="auth-card">
+            <div class="auth-logo"><span class="logo-trade">TRADE</span><span class="logo-icon">📊</span><span class="logo-journal">JOURNAL</span></div>
+            <h2 id="auth-title">Login</h2>
+            <div class="form-group"><label>Username</label><input type="text" id="auth-username" placeholder="Enter username"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="auth-password" placeholder="Enter password"></div>
+            <button class="btn btn-primary" id="btn-auth-submit" style="width:100%;justify-content:center;margin-top:8px"><i class="fas fa-sign-in-alt"></i> Login</button>
+            <p class="auth-switch" id="auth-switch">Don't have an account? <a href="#" id="auth-toggle">Sign Up</a></p>
+            <div class="auth-error hidden" id="auth-error"></div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+            <span class="logo-trade">TRADE</span><span class="logo-icon">📊</span><span class="logo-journal">JOURNAL</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-page="rulebook" id="nav-rulebook">
+                <i class="fas fa-list-check"></i><span>My Rule Book</span>
+            </a>
+            <a href="#" class="nav-item" data-page="add-trades" id="nav-add-trades">
+                <i class="fas fa-plus"></i><span>Add Trades</span>
+            </a>
+            <a href="#" class="nav-item" data-page="manage-trades" id="nav-manage-trades">
+                <i class="fas fa-folder-open"></i><span>Manage Trades</span>
+            </a>
+            <a href="#" class="nav-item" data-page="open-positions" id="nav-open-positions">
+                <i class="fas fa-briefcase"></i><span>Open Positions</span>
+            </a>
+            <a href="#" class="nav-item" data-page="dashboard" id="nav-dashboard">
+                <i class="fas fa-home"></i><span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-page="position-manager" id="nav-position-manager">
+                <i class="fas fa-layer-group"></i><span>Position Manager</span>
+            </a>
+            <a href="#" class="nav-item" data-page="trade-diary" id="nav-trade-diary">
+                <i class="fas fa-book"></i><span>Trade Diary</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer" style="padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)">
+            <button id="btn-logout" style="width:100%;padding:10px;background:rgba(239,83,80,0.15);color:#ef5350;border:none;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content">
+        <div class="topbar">
+            <button class="menu-toggle" id="menu-toggle"><i class="fas fa-bars"></i></button>
+            <span class="topbar-title" id="topbar-title">TradeJournal Pro</span>
+        </div>
+
+        <!-- PAGE: My Rule Book -->
+        <section class="page active" id="page-rulebook">
+            <h1 class="page-title">My Rule Book</h1>
+            <button class="btn-save-rules" id="btn-save-rules" title="Save Rules"><i class="fas fa-save"></i></button>
+            <div class="instructions-box">
+                <h3><i class="fas fa-info-circle"></i> Instructions:</h3>
+                <ul>
+                    <li>This is a dedicated page for creating your systems and principles for discipline in trading.</li>
+                    <li>Document all possible outcomes (positive & negative) for your entries, exits, risk management, and Situational Awareness.</li>
+                    <li>Clearly mark each possibility with <span class="green-text">✓</span> or <span class="red-text">✗</span> next to the text.</li>
+                    <li>Leverage these pre-identified patterns during journaling.</li>
+                </ul>
+            </div>
+            <div class="rulebook-grid" id="rulebook-grid">
+                <!-- Cards populated by JS -->
+            </div>
+        </section>
+
+        <!-- PAGE: Add Trades -->
+        <section class="page" id="page-add-trades">
+            <h1 class="page-title">Add Trades</h1>
+            <div class="add-trades-layout">
+                <div class="add-trades-form card">
+                    <div class="form-group">
+                        <label>Broker</label>
+                        <select id="broker-select">
+                            <option>Zerodha</option>
+                            <option>AngelOne</option>
+                            <option>Groww</option>
+                            <option>Upstox</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tradebook:</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="tradebook-file" accept=".csv,.xlsx,.xls">
+                            <label for="tradebook-file" class="file-label"><i class="fas fa-upload"></i> Choose file</label>
+                            <span class="file-name" id="tradebook-name">No file chosen</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>P&L Statement: <small>(Required for Charges)</small></label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="pnl-file" accept=".csv,.xlsx">
+                            <label for="pnl-file" class="file-label"><i class="fas fa-upload"></i> Choose file</label>
+                            <span class="file-name" id="pnl-name">No file chosen</span>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="btn-process-files"><i class="fas fa-cogs"></i> Process &amp; Import</button>
+                        <button class="btn btn-success" id="btn-create-empty"><i class="fas fa-plus-circle"></i> Create Empty Tradebook</button>
+                    </div>
+                    <p class="form-note">Supported: CSV &amp; XLSX files from Zerodha, AngelOne, Groww, Upstox | Max ~2MB</p>
+                    <!-- Import result panel -->
+                    <div class="import-result hidden" id="import-result">
+                        <div class="import-result-header" id="import-result-header"></div>
+                        <div class="import-result-body" id="import-result-body"></div>
+                    </div>
+                    <hr class="divider">
+                    <h3>Or Add Trade Manually</h3>
+                    <div class="manual-trade-form">
+                        <div class="form-row">
+                            <div class="form-group"><label>Symbol</label><input type="text" id="manual-symbol" placeholder="e.g. RELIANCE"></div>
+                            <div class="form-group"><label>Trade Type</label>
+                                <select id="manual-type"><option>Buy</option><option>Sell</option></select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Entry Price</label><input type="number" id="manual-entry-price" placeholder="0.00"></div>
+                            <div class="form-group"><label>Entry Qty</label><input type="number" id="manual-entry-qty" placeholder="0"></div>
+                            <div class="form-group"><label>Entry Date</label><input type="date" id="manual-entry-date"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Exit Price</label><input type="number" id="manual-exit-price" placeholder="0.00"></div>
+                            <div class="form-group"><label>Exit Qty</label><input type="number" id="manual-exit-qty" placeholder="0"></div>
+                            <div class="form-group"><label>Exit Date</label><input type="date" id="manual-exit-date"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Stop Loss (%)</label><input type="number" id="manual-sl" placeholder="5"></div>
+                            <div class="form-group"><label>Status</label>
+                                <select id="manual-status"><option>Closed</option><option>Open</option></select>
+                            </div>
+                        </div>
+                        <div class="form-group"><label>Notes</label><textarea id="manual-notes" placeholder="Trade notes..."></textarea></div>
+                        <button class="btn btn-success" id="btn-add-manual"><i class="fas fa-plus"></i> Add Trade</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE: Manage Trades -->
+        <section class="page" id="page-manage-trades">
+            <div class="page-header">
+                <h1 class="page-title">Manage Trades <button class="btn-icon btn-success-circle" id="btn-add-new-trade"><i class="fas fa-plus"></i></button></h1>
+            </div>
+            <div class="filters-bar">
+                <input type="text" placeholder="Search by symbol..." id="manage-search" class="filter-input">
+                <div class="filter-group">
+                    <label>Sell Dates:</label>
+                    <input type="date" id="manage-date-from" class="filter-input">
+                    <span>to</span>
+                    <input type="date" id="manage-date-to" class="filter-input">
+                </div>
+                <div class="filter-group">
+                    <label>SL (%):</label>
+                    <input type="number" id="manage-sl-filter" value="5" class="filter-input small">
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="data-table" id="manage-trades-table">
+                    <thead>
+                        <tr>
+                            <th>SYMBOL <i class="fas fa-sort"></i></th>
+                            <th colspan="3" class="th-group">ENTRY</th>
+                            <th colspan="3" class="th-group">EXIT</th>
+                            <th>P/L %(₹) <i class="fas fa-sort"></i></th>
+                            <th>POTENTIAL P/L (₹)</th>
+                            <th>ACTIONS</th>
+                        </tr>
+                        <tr class="sub-header">
+                            <th></th>
+                            <th>QTY</th><th>PRICE</th><th>DATE/TIME</th>
+                            <th>QTY</th><th>PRICE</th><th>DATE/TIME</th>
+                            <th></th><th></th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="manage-trades-body">
+                    </tbody>
+                </table>
+                <div class="no-data" id="manage-no-data">No Data</div>
+                <div class="pagination" id="manage-pagination"></div>
+            </div>
+        </section>
+
+        <!-- PAGE: Open Positions -->
+        <section class="page" id="page-open-positions">
+            <div class="page-header">
+                <h1 class="page-title">Open Positions <button class="btn-icon btn-success-circle" id="btn-add-position"><i class="fas fa-plus"></i></button></h1>
+                <div class="view-toggle">
+                    <button class="btn-toggle active" id="btn-list-view"><i class="fas fa-list"></i> List View</button>
+                    <button class="btn-toggle" id="btn-chart-view"><i class="fas fa-chart-line"></i> Charts</button>
+                </div>
+            </div>
+            <div class="filters-bar">
+                <input type="text" placeholder="Search symbol..." id="positions-search" class="filter-input">
+                <div class="filter-group">
+                    <label>Initial Total Capital:</label>
+                    <input type="number" id="positions-capital" placeholder="Enter portfolio" class="filter-input">
+                    <button class="btn-icon-small btn-primary-circle"><i class="fas fa-arrow-right"></i></button>
+                </div>
+            </div>
+            <div class="table-container" id="positions-list-view">
+                <table class="data-table" id="positions-table">
+                    <thead>
+                        <tr>
+                            <th>SYMBOL <i class="fas fa-sort"></i></th>
+                            <th>OPEN POSITION SIZING(%)</th>
+                            <th>DAYS HELD</th>
+                            <th>SL(%) <i class="fas fa-sort"></i></th>
+                            <th>OPEN RISK %</th>
+                            <th>UNREALIZED P/L %(₹)</th>
+                            <th>R MULTIPLES ACHIEVED</th>
+                            <th>UNREALIZED PORTFOLIO GAIN %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-body"></tbody>
+                </table>
+                <div class="no-data" id="positions-no-data">No Data</div>
+                <div class="pagination" id="positions-pagination"></div>
+            </div>
+            <div class="chart-container hidden" id="positions-chart-view" style="padding:20px">
+                <div class="dashboard-grid">
+                    <div class="dash-card">
+                        <h2><i class="fas fa-chart-pie" style="color:var(--primary);margin-right:6px"></i> Portfolio Allocation</h2>
+                        <div style="height:280px;position:relative"><canvas id="positions-chart-pie"></canvas></div>
+                    </div>
+                    <div class="dash-card">
+                        <h2><i class="fas fa-chart-bar" style="color:var(--primary);margin-right:6px"></i> Position Sizing</h2>
+                        <div style="height:280px;position:relative"><canvas id="positions-chart-bar"></canvas></div>
+                    </div>
+                </div>
+                <div class="no-data" id="positions-chart-no-data" style="display:none">No open positions to chart</div>
+            </div>
+        </section>
+
+        <!-- PAGE: Dashboard -->
+        <section class="page" id="page-dashboard">
+            <h1 class="page-title">Dashboard</h1>
+            <div class="filters-bar">
+                <div class="filter-group">
+                    <label>Sell Dates:</label>
+                    <input type="date" id="dash-date-from" class="filter-input">
+                    <span>to</span>
+                    <input type="date" id="dash-date-to" class="filter-input">
+                </div>
+                <div class="filter-group">
+                    <label>Entry Trigger:</label>
+                    <select id="dash-trigger" class="filter-input"><option value="">All</option></select>
+                </div>
+            </div>
+            <div class="dashboard-grid">
+                <div class="dash-card">
+                    <h2>Trading Statistics</h2>
+                    <div class="stat-grid">
+                        <div class="stat-item"><span class="stat-label">Total Trades</span><span class="stat-value" id="stat-total">0</span></div>
+                        <div class="stat-item"><span class="stat-label">Winning Trades</span><span class="stat-value green" id="stat-winning">0</span></div>
+                        <div class="stat-item"><span class="stat-label">Losing Trades</span><span class="stat-value red" id="stat-losing">0</span></div>
+                        <div class="stat-item"><span class="stat-label">Unknown Trades</span><span class="stat-value" id="stat-unknown">0</span></div>
+                        <div class="stat-item"><span class="stat-label">Win Rate</span><span class="stat-value" id="stat-winrate">0%</span></div>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <h2>Profit/Loss Statistics</h2>
+                    <div class="stat-grid two-col">
+                        <div class="stat-item"><span class="stat-label green-text">Net P&L Value</span><span class="stat-value green" id="stat-netpnl">0</span></div>
+                        <div class="stat-item"><span class="stat-label green-text">NIFTY 50 Return</span><span class="stat-value" id="stat-nifty">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label green-text">Average Win %</span><span class="stat-value green" id="stat-avgwin">0</span></div>
+                        <div class="stat-item"><span class="stat-label red-text">Average Loss %</span><span class="stat-value red" id="stat-avgloss">0</span></div>
+                        <div class="stat-item"><span class="stat-label green-text">Biggest Win Value / %</span><span class="stat-value green" id="stat-bigwin">0 / 0%</span></div>
+                        <div class="stat-item"><span class="stat-label red-text">Biggest Loss Value / %</span><span class="stat-value red" id="stat-bigloss">0 / 0%</span></div>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <h2>Charges <button class="btn-icon-tiny"><i class="fas fa-pen"></i></button></h2>
+                    <div class="stat-grid two-col">
+                        <div class="stat-item full-width"><span class="stat-label">Total Charges</span><span class="stat-value" id="stat-charges">0.00</span></div>
+                        <div class="stat-item"><span class="stat-label">Brokerage</span><span class="stat-value" id="stat-brokerage">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">GST</span><span class="stat-value" id="stat-gst">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">STT</span><span class="stat-value" id="stat-stt">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">SEBI Charges</span><span class="stat-value" id="stat-sebi">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">Exchange Charges</span><span class="stat-value" id="stat-exchange">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">Stamp Duty</span><span class="stat-value" id="stat-stamp">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label green-text">IPFT</span><span class="stat-value" id="stat-ipft">N/A</span></div>
+                        <div class="stat-item"><span class="stat-label">Other Charges</span><span class="stat-value" id="stat-other">N/A</span></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Dashboard Charts -->
+            <div class="dashboard-grid" style="margin-top:20px">
+                <div class="dash-card" style="grid-column:1/-1">
+                    <h2><i class="fas fa-chart-line" style="color:var(--primary);margin-right:6px"></i> Equity Curve</h2>
+                    <div style="height:280px;position:relative"><canvas id="chart-equity"></canvas></div>
+                </div>
+                <div class="dash-card">
+                    <h2><i class="fas fa-chart-pie" style="color:var(--primary);margin-right:6px"></i> Win / Loss Ratio</h2>
+                    <div style="height:260px;position:relative"><canvas id="chart-winloss"></canvas></div>
+                </div>
+                <div class="dash-card">
+                    <h2><i class="fas fa-chart-bar" style="color:var(--primary);margin-right:6px"></i> Monthly P&L</h2>
+                    <div style="height:260px;position:relative"><canvas id="chart-monthly"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE: Trade Diary -->
+        <section class="page" id="page-trade-diary">
+            <div class="page-header">
+                <div class="view-toggle center-toggle">
+                    <button class="btn-toggle active" id="btn-diary-trades"><i class="fas fa-list"></i> Trades</button>
+                    <button class="btn-toggle" id="btn-diary-summary"><i class="fas fa-chart-line"></i> Summary</button>
+                </div>
+            </div>
+            <div class="filters-bar">
+                <div class="filter-group">
+                    <label>Sell Dates:</label>
+                    <input type="date" id="diary-date-from" class="filter-input">
+                    <span>to</span>
+                    <input type="date" id="diary-date-to" class="filter-input">
+                </div>
+                <div class="filter-group">
+                    <label>Initial Total Capital:</label>
+                    <input type="number" id="diary-capital" placeholder="Enter portfolio" class="filter-input">
+                    <button class="btn-icon-small btn-primary-circle"><i class="fas fa-save"></i></button>
+                </div>
+            </div>
+            <div class="filters-bar">
+                <div class="filter-group">
+                    <label>Sort:</label>
+                    <select id="diary-sort" class="filter-input">
+                        <option>Date (Newest First)</option>
+                        <option>Date (Oldest First)</option>
+                        <option>P/L (High to Low)</option>
+                        <option>P/L (Low to High)</option>
+                    </select>
+                </div>
+                <input type="text" placeholder="Search Trades by Symbol..." id="diary-search" class="filter-input">
+            </div>
+            <div id="diary-trades-view">
+                <div class="diary-trades-list" id="diary-trades-list"></div>
+                <div class="no-data" id="diary-no-data">No Data Found</div>
+            </div>
+            <div id="diary-summary-view" class="hidden">
+                <div class="summary-cards" id="diary-summary-cards"></div>
+            </div>
+        </section>
+
+        <!-- PAGE: Position Manager -->
+        <section class="page" id="page-position-manager">
+            <div class="page-header">
+                <h1 class="page-title"><i class="fas fa-layer-group" style="color:var(--primary);margin-right:8px"></i>Position Manager</h1>
+                <button class="btn btn-primary" id="btn-pm-add"><i class="fas fa-plus"></i> Add Position</button>
+            </div>
+
+            <!-- Capital Input -->
+            <div class="filters-bar" style="margin-bottom:16px">
+                <div class="filter-group">
+                    <label>Total Capital (₹):</label>
+                    <input type="number" id="pm-capital-input" placeholder="Enter your total capital" class="filter-input" style="width:200px">
+                    <button class="btn btn-primary btn-sm" id="btn-pm-set-capital"><i class="fas fa-save"></i> Set</button>
+                </div>
+            </div>
+
+            <!-- Summary Stats Bar -->
+            <div class="pm-summary-bar">
+                <div class="pm-summary-item">
+                    <span class="pm-summary-label">% INVESTED</span>
+                    <span class="pm-summary-value" id="pm-invested">0%</span>
+                    <span class="pm-summary-sub" id="pm-invested-sub">₹0 of ₹0</span>
+                </div>
+                <div class="pm-summary-item">
+                    <span class="pm-summary-label">DAY P&L</span>
+                    <span class="pm-summary-value" id="pm-day-pnl">₹0</span>
+                    <span class="pm-summary-sub" id="pm-day-pnl-sub">Today's change</span>
+                </div>
+                <div class="pm-summary-item">
+                    <span class="pm-summary-label">TOTAL P&L</span>
+                    <span class="pm-summary-value green" id="pm-total-pnl">₹0</span>
+                    <span class="pm-summary-sub" id="pm-total-pnl-sub">All time</span>
+                </div>
+                <div class="pm-summary-item">
+                    <span class="pm-summary-label">TOTAL P&L %</span>
+                    <span class="pm-summary-value" id="pm-total-pnl-pct">0%</span>
+                    <span class="pm-summary-sub" id="pm-total-pnl-pct-sub">Portfolio return</span>
+                </div>
+                <div class="pm-summary-item">
+                    <span class="pm-summary-label">CASH REMAINING</span>
+                    <span class="pm-summary-value green" id="pm-cash">₹0</span>
+                    <span class="pm-summary-sub" id="pm-cash-sub">Available</span>
+                </div>
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="pm-filter-row">
+                <div class="pm-tabs">
+                    <button class="pm-tab active" data-filter="active">Active</button>
+                    <button class="pm-tab" data-filter="closed">Closed</button>
+                    <button class="pm-tab" data-filter="sl">SL</button>
+                    <button class="pm-tab" data-filter="tp">TP</button>
+                    <button class="pm-tab" data-filter="all">All</button>
+                </div>
+                <div class="pm-view-btns">
+                    <button class="pm-view-btn active" id="pm-card-view-btn" title="Card View"><i class="fas fa-th-large"></i></button>
+                    <button class="pm-view-btn" id="pm-list-view-btn" title="List View"><i class="fas fa-list"></i></button>
+                </div>
+                <button class="btn btn-outline btn-sm" id="pm-refresh-btn"><i class="fas fa-sync-alt"></i> Refresh All</button>
+            </div>
+
+            <!-- Position Cards Grid -->
+            <div class="pm-cards-grid" id="pm-cards-grid">
+                <!-- Populated by JS -->
+            </div>
+            <div class="pm-no-data hidden" id="pm-no-data">
+                <i class="fas fa-chart-bar" style="font-size:3rem;opacity:0.2;margin-bottom:12px"></i>
+                <p>No positions found. Add your first position!</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal for editing trades -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+        <div class="modal" id="trade-modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Edit Trade</h2>
+                <button class="modal-close" id="modal-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
