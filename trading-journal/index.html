@@ -144,7 +144,7 @@
                             <div class="form-group"><label>Exit Date</label><input type="date" id="manual-exit-date"></div>
                         </div>
                         <div class="form-row">
-                            <div class="form-group"><label>Stop Loss (%)</label><input type="number" id="manual-sl" placeholder="5"></div>
+                            <div class="form-group"><label>Stop Loss Price (₹)</label><input type="number" id="manual-sl" placeholder="e.g. 95" step="0.01"></div>
                             <div class="form-group"><label>Status</label>
                                 <select id="manual-status"><option>Closed</option><option>Open</option></select>
                             </div>
@@ -163,39 +163,25 @@
             </div>
             <div class="filters-bar">
                 <input type="text" placeholder="Search by symbol..." id="manage-search" class="filter-input">
-                <div class="filter-group">
-                    <label>Sell Dates:</label>
-                    <input type="date" id="manage-date-from" class="filter-input">
-                    <span>to</span>
-                    <input type="date" id="manage-date-to" class="filter-input">
-                </div>
-                <div class="filter-group">
-                    <label>SL (%):</label>
-                    <input type="number" id="manage-sl-filter" value="5" class="filter-input small">
-                </div>
             </div>
             <div class="table-container">
                 <table class="data-table" id="manage-trades-table">
                     <thead>
                         <tr>
                             <th>SYMBOL <i class="fas fa-sort"></i></th>
-                            <th colspan="3" class="th-group">ENTRY</th>
-                            <th colspan="3" class="th-group">EXIT</th>
-                            <th>P/L %(₹) <i class="fas fa-sort"></i></th>
-                            <th>POTENTIAL P/L (₹)</th>
+                            <th>REMAINING QTY</th>
+                            <th>AVG ENTRY PRICE</th>
+                            <th>TOTAL BOUGHT</th>
+                            <th>TOTAL SOLD</th>
+                            <th>SL (₹)</th>
+                            <th>RISK (₹)</th>
                             <th>ACTIONS</th>
-                        </tr>
-                        <tr class="sub-header">
-                            <th></th>
-                            <th>QTY</th><th>PRICE</th><th>DATE/TIME</th>
-                            <th>QTY</th><th>PRICE</th><th>DATE/TIME</th>
-                            <th></th><th></th><th></th>
                         </tr>
                     </thead>
                     <tbody id="manage-trades-body">
                     </tbody>
                 </table>
-                <div class="no-data" id="manage-no-data">No Data</div>
+                <div class="no-data" id="manage-no-data">No Open Positions</div>
                 <div class="pagination" id="manage-pagination"></div>
             </div>
         </section>
@@ -224,7 +210,7 @@
                             <th>SYMBOL <i class="fas fa-sort"></i></th>
                             <th>OPEN POSITION SIZING(%)</th>
                             <th>DAYS HELD</th>
-                            <th>SL(%) <i class="fas fa-sort"></i></th>
+                            <th>SL(₹) <i class="fas fa-sort"></i></th>
                             <th>OPEN RISK %</th>
                             <th>UNREALIZED P/L %(₹)</th>
                             <th>R MULTIPLES ACHIEVED</th>
@@ -451,6 +437,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
