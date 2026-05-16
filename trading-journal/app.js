@@ -400,49 +400,60 @@ function normalizeDate(raw) {
 // --- Pair BUY + SELL orders by symbol into complete trades ---
 // Logic: sort by date, match each BUY to the next SELL for the same symbol
 function pairTrades(rows) {
-    const bySymbol = {};
-    rows.forEach(r => {
-        if (!bySymbol[r.symbol]) bySymbol[r.symbol] = { buys: [], sells: [] };
-        if (r.side === 'BUY') bySymbol[r.symbol].buys.push(r);
-        else bySymbol[r.symbol].sells.push(r);
-    });
+    // Sort all rows chronologically first
+    rows.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     const paired = [];
-    const openTrades = [];
+    const openPositions = {}; // symbol -> { buys: [] }
 
-    Object.entries(bySymbol).forEach(([symbol, { buys, sells }]) => {
-        // Sort both by date
-        buys.sort((a, b) => new Date(a.date) - new Date(b.date));
-        sells.sort((a, b) => new Date(a.date) - new Date(b.date));
+    rows.forEach(r => {
+        if (!openPositions[r.symbol]) openPositions[r.symbol] = { buys: [] };
+        const pos = openPositions[r.symbol];
 
-        const sellQueue = [...sells];
-        buys.forEach(buy => {
-            // Find first sell after or on the same day
-            const sellIdx = sellQueue.findIndex(s => s.date >= buy.date);
-            if (sellIdx >= 0) {
-                const sell = sellQueue.splice(sellIdx, 1)[0];
-                const pnl = (sell.price - buy.price) * buy.qty;
-                const pnlPct = buy.price ? ((sell.price - buy.price) / buy.price * 100) : 0;
+        if (r.side === 'BUY') {
+            pos.buys.push({ qty: r.qty, price: r.price, date: r.date });
+        } else if (r.side === 'SELL') {
+            let remainingSellQty = r.qty;
+            while (remainingSellQty > 0 && pos.buys.length > 0) {
+                const firstBuy = pos.buys[0];
+                const matchQty = Math.min(remainingSellQty, firstBuy.qty);
+
+                const pnl = (r.price - firstBuy.price) * matchQty;
+                const pnlPct = firstBuy.price ? ((r.price - firstBuy.price) / firstBuy.price * 100) : 0;
+
                 paired.push({
                     id: Date.now() + Math.random(),
-                    symbol, broker: document.getElementById('broker-select').value,
+                    symbol: r.symbol, broker: document.getElementById('broker-select').value,
                     type: 'Buy',
-                    entryDate: buy.date, entryPrice: buy.price, entryQty: buy.qty,
-                    exitDate: sell.date, exitPrice: sell.price, exitQty: sell.qty,
-                    sl: 5, status: 'Closed', notes: '', pnl, pnlPct
+                    entryDate: firstBuy.date, entryPrice: firstBuy.price, entryQty: matchQty,
+                    exitDate: r.date, exitPrice: r.price, exitQty: matchQty,
+                    sl: null, status: 'Closed', notes: '', pnl, pnlPct
                 });
-            } else {
-                // No matching sell — open position
-                openTrades.push({
-                    id: Date.now() + Math.random(),
-                    symbol, broker: document.getElementById('broker-select').value,
-                    type: 'Buy',
-                    entryDate: buy.date, entryPrice: buy.price, entryQty: buy.qty,
-                    exitDate: '', exitPrice: 0, exitQty: 0,
-                    sl: 5, status: 'Open', notes: '', pnl: 0, pnlPct: 0
-                });
+
+                remainingSellQty -= matchQty;
+                firstBuy.qty -= matchQty;
+                if (firstBuy.qty === 0) pos.buys.shift();
             }
-        });
+        }
+    });
+
+    const openTrades = [];
+    Object.entries(openPositions).forEach(([symbol, pos]) => {
+        if (pos.buys.length > 0) {
+            // Average the remaining buys
+            const totalQty = pos.buys.reduce((sum, b) => sum + b.qty, 0);
+            const totalCost = pos.buys.reduce((sum, b) => sum + b.price * b.qty, 0);
+            const avgPrice = totalCost / totalQty;
+            const firstDate = pos.buys[0].date;
+            openTrades.push({
+                id: Date.now() + Math.random(),
+                symbol, broker: document.getElementById('broker-select').value,
+                type: 'Buy',
+                entryDate: firstDate, entryPrice: avgPrice, entryQty: totalQty,
+                exitDate: '', exitPrice: 0, exitQty: 0,
+                sl: null, status: 'Open', notes: '', pnl: 0, pnlPct: 0
+            });
+        }
     });
 
     return [...paired, ...openTrades];
@@ -492,6 +503,78 @@ function showImportResult(added, skipped, errors) {
     body.innerHTML = `<ul>${lines.join('')}</ul>`;
 }
 
+// --- P&L file charges parsing ---
+const CHARGE_KEYWORDS = {
+    brokerage: ['brokerage', 'broker charge', 'broker charges'],
+    gst: ['gst', 'goods and service', 'goods & service'],
+    stt: ['stt', 'securities transaction', 'security transaction'],
+    sebi: ['sebi', 'sebi charges', 'sebi turnover'],
+    exchange: ['exchange', 'exchange charges', 'exchange txn', 'transaction charge', 'turnover charge'],
+    stamp: ['stamp', 'stamp duty', 'stamp charge'],
+    ipft: ['ipft', 'investor protection'],
+    other: ['dp charge', 'dp charges', 'other charge', 'other charges', 'clearing charge', 'clearing charges']
+};
+
+function extractChargesFromRows(rows) {
+    const charges = { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 };
+
+    // Strategy 1: Check if charges are in column headers (each row has charge columns)
+    if (rows.length > 0) {
+        const headers = Object.keys(rows[0]).map(h => h.toLowerCase().trim());
+        const chargeColMap = {}; // chargeType -> columnName
+
+        for (const [chargeType, keywords] of Object.entries(CHARGE_KEYWORDS)) {
+            for (const header of Object.keys(rows[0])) {
+                const hLower = header.toLowerCase().trim();
+                for (const kw of keywords) {
+                    if (hLower.includes(kw)) {
+                        chargeColMap[chargeType] = header;
+                        break;
+                    }
+                }
+                if (chargeColMap[chargeType]) break;
+            }
+        }
+
+        if (Object.keys(chargeColMap).length > 0) {
+            // Sum charge columns across all rows
+            rows.forEach(row => {
+                for (const [chargeType, colName] of Object.entries(chargeColMap)) {
+                    const val = parseFloat(String(row[colName] || '0').replace(/[₹,]/g, '')) || 0;
+                    charges[chargeType] += Math.abs(val);
+                }
+            });
+        }
+    }
+
+    // Strategy 2: Check if charges are in rows (label in one column, value in another)
+    // This handles Zerodha/Groww style P&L statements where charges are listed as rows
+    if (charges.brokerage === 0 && charges.stt === 0) {
+        rows.forEach(row => {
+            const values = Object.values(row);
+            const allText = values.map(v => String(v || '').toLowerCase().trim()).join(' ');
+
+            for (const [chargeType, keywords] of Object.entries(CHARGE_KEYWORDS)) {
+                for (const kw of keywords) {
+                    if (allText.includes(kw)) {
+                        // Find the numeric value in this row
+                        for (const v of values) {
+                            const num = parseFloat(String(v || '').replace(/[₹,]/g, ''));
+                            if (!isNaN(num) && num !== 0 && String(v).toLowerCase().trim() !== kw) {
+                                charges[chargeType] += Math.abs(num);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    charges.total = charges.brokerage + charges.gst + charges.stt + charges.sebi + charges.exchange + charges.stamp + charges.ipft + charges.other;
+    return charges;
+}
+
 // --- Main import handler ---
 document.getElementById('btn-process-files')?.addEventListener('click', async () => {
     const tbFile = document.getElementById('tradebook-file').files[0];
@@ -528,6 +611,27 @@ document.getElementById('btn-process-files')?.addEventListener('click', async ()
         const updatedTrades = [...added, ...existing];
         Store.setTrades(updatedTrades);
 
+        // Parse P&L file for charges if provided
+        const pnlFile = document.getElementById('pnl-file').files[0];
+        if (pnlFile) {
+            try {
+                const pnlRows = await parseFileToRows(pnlFile);
+                if (pnlRows && pnlRows.length > 0) {
+                    const charges = extractChargesFromRows(pnlRows);
+                    // Accumulate with existing charges
+                    const existingCharges = Store.get('charges', { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 });
+                    for (const key of Object.keys(charges)) {
+                        existingCharges[key] = (existingCharges[key] || 0) + charges[key];
+                    }
+                    existingCharges.total = existingCharges.brokerage + existingCharges.gst + existingCharges.stt + existingCharges.sebi + existingCharges.exchange + existingCharges.stamp + existingCharges.ipft + existingCharges.other;
+                    Store.set('charges', existingCharges);
+                    showToast(`Charges extracted: ₹${existingCharges.total.toFixed(2)} total`, 'info');
+                }
+            } catch (pnlErr) {
+                errors.push('P&L file parsing failed: ' + (pnlErr.message || String(pnlErr)));
+            }
+        }
+
         if (added.length > 0) showToast(`${added.length} trades imported successfully!`);
         else showToast('No new trades to import (all duplicates)', 'info');
 
@@ -554,44 +658,115 @@ document.getElementById('btn-add-manual')?.addEventListener('click', () => {
     const exitPrice = parseFloat(document.getElementById('manual-exit-price').value) || 0;
     const exitQty = parseInt(document.getElementById('manual-exit-qty').value) || 0;
     const exitDate = document.getElementById('manual-exit-date').value || '';
-    const sl = parseFloat(document.getElementById('manual-sl').value) || 5;
+    const sl = parseFloat(document.getElementById('manual-sl').value) || null;
     const status = document.getElementById('manual-status').value;
     const notes = document.getElementById('manual-notes').value;
+    const type = document.getElementById('manual-type').value;
+    const broker = document.getElementById('broker-select').value;
 
     if (!symbol || !entryPrice || !entryQty || !entryDate) {
         showToast('Please fill symbol, entry price, qty and date', 'error');
         return;
     }
 
-    const pnl = exitPrice ? ((exitPrice - entryPrice) * entryQty) : 0;
-    const pnlPct = exitPrice ? (((exitPrice - entryPrice) / entryPrice) * 100) : 0;
-
-    const trade = {
-        id: Date.now(),
-        symbol, entryPrice, entryQty, entryDate,
-        exitPrice, exitQty, exitDate,
-        sl, status, notes, pnl, pnlPct,
-        type: document.getElementById('manual-type').value,
-        broker: document.getElementById('broker-select').value
-    };
-
     const trades = Store.getTrades();
-    trades.unshift(trade);
-    Store.setTrades(trades);
+
+    if (exitPrice && exitQty > 0 && exitQty < entryQty) {
+        // --- PARTIAL EXIT: Split into closed + open ---
+        const closedQty = exitQty;
+        const remainingQty = entryQty - exitQty;
+
+        // Closed trade (sold portion)
+        const closedPnl = (exitPrice - entryPrice) * closedQty;
+        const closedPnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+        trades.unshift({
+            id: Date.now(),
+            symbol, entryPrice, entryQty: closedQty, entryDate,
+            exitPrice, exitQty: closedQty, exitDate,
+            sl, status: 'Closed', notes, pnl: closedPnl, pnlPct: closedPnlPct,
+            type, broker
+        });
+
+        // Open trade (remaining portion)
+        trades.unshift({
+            id: Date.now() + 1,
+            symbol, entryPrice, entryQty: remainingQty, entryDate,
+            exitPrice: 0, exitQty: 0, exitDate: '',
+            sl, status: 'Open', notes: `Remaining ${remainingQty} shares from partial exit`, pnl: 0, pnlPct: 0,
+            type, broker
+        });
+
+        Store.setTrades(trades);
+        showToast(`${symbol}: ${closedQty} shares closed, ${remainingQty} shares still open!`);
+
+    } else {
+        // --- FULL EXIT or OPEN trade ---
+        const actualExitQty = exitQty || entryQty;
+        const pnl = exitPrice ? ((exitPrice - entryPrice) * actualExitQty) : 0;
+        const pnlPct = exitPrice ? (((exitPrice - entryPrice) / entryPrice) * 100) : 0;
+
+        trades.unshift({
+            id: Date.now(),
+            symbol, entryPrice, entryQty, entryDate,
+            exitPrice, exitQty: actualExitQty, exitDate,
+            sl, status, notes, pnl, pnlPct,
+            type, broker
+        });
+
+        Store.setTrades(trades);
+        showToast(`Trade ${symbol} added successfully!`);
+    }
 
     // Clear form
     ['manual-symbol','manual-entry-price','manual-entry-qty','manual-entry-date','manual-exit-price','manual-exit-qty','manual-exit-date','manual-sl','manual-notes'].forEach(id => {
         document.getElementById(id).value = '';
     });
-
-    showToast(`Trade ${symbol} added successfully!`);
 });
 
 // ==================== MANAGE TRADES ====================
 function renderManageTrades() {
-    const trades = Store.getTrades().filter(t => t.status === 'Closed' || t.exitPrice > 0);
+    const allTrades = Store.getTrades();
     const search = document.getElementById('manage-search')?.value.toLowerCase() || '';
-    const filtered = trades.filter(t => !search || t.symbol.toLowerCase().includes(search));
+
+    // Aggregate all trades by symbol
+    const symbolMap = {};
+    allTrades.forEach(t => {
+        const sym = t.symbol;
+        if (!symbolMap[sym]) {
+            symbolMap[sym] = { totalBought: 0, totalSold: 0, buyCost: 0, sl: null, trades: [] };
+        }
+        symbolMap[sym].trades.push(t);
+
+        if (t.type === 'Buy' || !t.type) {
+            symbolMap[sym].totalBought += t.entryQty;
+            symbolMap[sym].buyCost += t.entryPrice * t.entryQty;
+        }
+        // Count sold qty from closed trades
+        if ((t.status === 'Closed' || t.exitPrice > 0) && t.exitQty > 0) {
+            symbolMap[sym].totalSold += t.exitQty;
+        }
+        if (t.sl) symbolMap[sym].sl = t.sl;
+    });
+
+    // Build remaining positions
+    const positions = [];
+    Object.entries(symbolMap).forEach(([symbol, data]) => {
+        const remaining = data.totalBought - data.totalSold;
+        if (remaining > 0) {
+            const avgPrice = data.buyCost / data.totalBought;
+            positions.push({
+                symbol,
+                remainingQty: remaining,
+                avgPrice,
+                totalBought: data.totalBought,
+                totalSold: data.totalSold,
+                sl: data.sl,
+                trades: data.trades
+            });
+        }
+    });
+
+    const filtered = positions.filter(p => !search || p.symbol.toLowerCase().includes(search));
     const body = document.getElementById('manage-trades-body');
     const noData = document.getElementById('manage-no-data');
 
@@ -602,25 +777,111 @@ function renderManageTrades() {
     }
     noData.style.display = 'none';
 
-    body.innerHTML = filtered.map(t => {
-        const pnlClass = t.pnl >= 0 ? 'green' : 'red';
-        const potentialPnl = t.sl ? (t.entryPrice * t.entryQty * t.sl / 100).toFixed(2) : 'N/A';
+    body.innerHTML = filtered.map(p => {
+        const riskPerShare = p.sl ? Math.abs(p.avgPrice - p.sl) : 0;
+        const totalRisk = p.sl ? (riskPerShare * p.remainingQty).toFixed(2) : 'N/A';
+        const firstTradeId = p.trades.find(t => t.status === 'Open')?.id || p.trades[0]?.id;
         return `<tr>
-            <td><strong>${t.symbol}</strong></td>
-            <td>${t.entryQty}</td><td>₹${t.entryPrice.toFixed(2)}</td><td>${t.entryDate}</td>
-            <td>${t.exitQty || t.entryQty}</td><td>₹${t.exitPrice ? t.exitPrice.toFixed(2) : '-'}</td><td>${t.exitDate || '-'}</td>
-            <td class="${pnlClass}">${t.pnlPct.toFixed(2)}% (₹${t.pnl.toFixed(2)})</td>
-            <td>₹${potentialPnl}</td>
+            <td><strong>${p.symbol}</strong></td>
+            <td><strong>${p.remainingQty}</strong></td>
+            <td>₹${p.avgPrice.toFixed(2)}</td>
+            <td>${p.totalBought}</td>
+            <td>${p.totalSold}</td>
+            <td>${p.sl ? '₹' + p.sl.toFixed(2) : 'N/A'}</td>
+            <td>${totalRisk !== 'N/A' ? '₹' + totalRisk : 'N/A'}</td>
             <td>
-                <button class="btn-icon" onclick="viewTrade(${t.id})" title="View Details"><i class="fas fa-eye" style="color:#448aff"></i></button>
-                <button class="btn-icon" onclick="editTrade(${t.id})" title="Edit"><i class="fas fa-pen" style="color:var(--primary)"></i></button>
-                <button class="btn-icon" onclick="deleteTrade(${t.id})" title="Delete"><i class="fas fa-trash" style="color:var(--danger)"></i></button>
+                <button class="btn-icon" onclick="viewPositionChart('${p.symbol}', ${p.avgPrice}, ${p.sl || 0}, ${p.remainingQty})" title="RR Chart"><i class="fas fa-chart-bar" style="color:#448aff"></i></button>
+                <button class="btn-icon" onclick="editTrade(${firstTradeId})" title="Edit"><i class="fas fa-pen" style="color:var(--primary)"></i></button>
             </td>
         </tr>`;
     }).join('');
 }
 
 document.getElementById('manage-search')?.addEventListener('input', renderManageTrades);
+
+// --- Candlestick RR Chart using TradingView Lightweight Charts ---
+function generateOHLCData(entryPrice, slPrice, numCandles) {
+    const data = [];
+    let price = entryPrice;
+    const volatility = entryPrice * 0.015;
+    const today = new Date();
+    for (let i = 0; i < numCandles; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - (numCandles - 1 - i));
+        const dateStr = d.toISOString().split('T')[0];
+        const drift = (Math.random() - 0.47) * volatility;
+        const open = price;
+        const close = open + drift;
+        const high = Math.max(open, close) + Math.random() * volatility * 0.8;
+        const low = Math.min(open, close) - Math.random() * volatility * 0.8;
+        data.push({ time: dateStr, open: parseFloat(open.toFixed(2)), high: parseFloat(high.toFixed(2)), low: parseFloat(low.toFixed(2)), close: parseFloat(close.toFixed(2)) });
+        price = close;
+    }
+    data[0].open = entryPrice;
+    return data;
+}
+
+let tvChartInstance = null;
+
+function viewPositionChart(symbol, avgPrice, slPrice, remainingQty) {
+    var modal = document.getElementById('modal-overlay');
+    var body = document.getElementById('modal-body');
+    document.getElementById('modal-title').textContent = symbol + ' \u2014 Position Chart';
+    var riskPerShare = slPrice ? Math.abs(avgPrice - slPrice) : 0;
+    var h = '';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">';
+    h += '<div style="background:#161b22;border-radius:10px;padding:12px;border:1px solid #30363d;text-align:center"><div style="font-size:.68rem;color:#8b949e;font-weight:600;text-transform:uppercase">Avg Entry</div><div style="font-size:1.1rem;font-weight:700;color:#58a6ff;margin-top:4px">\u20b9' + avgPrice.toFixed(2) + '</div></div>';
+    h += '<div style="background:#161b22;border-radius:10px;padding:12px;border:1px solid #30363d;text-align:center"><div style="font-size:.68rem;color:#8b949e;font-weight:600;text-transform:uppercase">Stop Loss</div><div style="font-size:1.1rem;font-weight:700;color:#ef5350;margin-top:4px">' + (slPrice ? '\u20b9' + slPrice.toFixed(2) : 'N/A') + '</div></div>';
+    h += '<div style="background:#161b22;border-radius:10px;padding:12px;border:1px solid #30363d;text-align:center"><div style="font-size:.68rem;color:#8b949e;font-weight:600;text-transform:uppercase">Remaining</div><div style="font-size:1.1rem;font-weight:700;color:#c9d1d9;margin-top:4px">' + remainingQty + ' shares</div></div>';
+    h += '</div>';
+    if (slPrice) {
+        h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">';
+        [{rr:1,c:'#26c6da',t:'1:1'},{rr:2,c:'#66bb6a',t:'1:2'},{rr:3,c:'#ffd600',t:'1:3'},{rr:4,c:'#ff9100',t:'1:4'}].forEach(function(r) {
+            h += '<div style="background:#0d1117;border-radius:8px;padding:10px;border:1px solid ' + r.c + '33;text-align:center">';
+            h += '<div style="font-size:.62rem;color:' + r.c + ';font-weight:700">' + r.t + ' TARGET</div>';
+            h += '<div style="font-size:.9rem;font-weight:700;color:' + r.c + '">\u20b9' + (avgPrice + riskPerShare * r.rr).toFixed(2) + '</div>';
+            h += '<div style="font-size:.7rem;color:#8b949e">+\u20b9' + (riskPerShare * r.rr * remainingQty).toFixed(0) + '</div></div>';
+        });
+        h += '</div>';
+    } else {
+        h += '<div style="background:#161b22;border-radius:8px;padding:14px;text-align:center;margin-bottom:16px;color:#8b949e;font-size:.85rem;border:1px solid #30363d">Set Stop Loss to see RR targets</div>';
+    }
+    h += '<div style="border-radius:10px;overflow:hidden;border:1px solid #30363d"><div id="tv-chart-container" style="height:380px;width:100%;background:#0d1117"></div></div>';
+    h += '<div style="margin-top:14px;text-align:right"><button class="btn btn-outline" id="btn-pos-chart-close"><i class="fas fa-times"></i> Close</button></div>';
+    body.innerHTML = h;
+    modal.classList.remove('hidden');
+    document.getElementById('btn-pos-chart-close').addEventListener('click', function() {
+        if (tvChartInstance) { tvChartInstance.remove(); tvChartInstance = null; }
+        modal.classList.add('hidden');
+    });
+    requestAnimationFrame(function() {
+        var container = document.getElementById('tv-chart-container');
+        if (!container || typeof LightweightCharts === 'undefined') return;
+        if (tvChartInstance) { tvChartInstance.remove(); tvChartInstance = null; }
+        container.innerHTML = '';
+        var chart = LightweightCharts.createChart(container, {
+            width: container.clientWidth, height: 380,
+            layout: { background: { type: 'solid', color: '#0d1117' }, textColor: '#8b949e', fontFamily: 'Inter, sans-serif', fontSize: 11 },
+            grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+            rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.05 } },
+            timeScale: { borderColor: '#30363d', timeVisible: false, rightOffset: 5 }
+        });
+        tvChartInstance = chart;
+        var cs = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderUpColor: '#26a69a', borderDownColor: '#ef5350', wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+        cs.setData(generateOHLCData(avgPrice, slPrice, 60));
+        cs.createPriceLine({ price: avgPrice, color: '#2196F3', lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'ENTRY' });
+        if (slPrice) {
+            cs.createPriceLine({ price: slPrice, color: '#ef5350', lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: 'SL' });
+            [{rr:1,c:'#26c6da',t:'1:1'},{rr:2,c:'#66bb6a',t:'1:2'},{rr:3,c:'#ffd600',t:'1:3'},{rr:4,c:'#ff9100',t:'1:4'}].forEach(function(cfg) {
+                cs.createPriceLine({ price: avgPrice + riskPerShare * cfg.rr, color: cfg.c, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: true, title: cfg.t });
+            });
+        }
+        chart.timeScale().fitContent();
+        new ResizeObserver(function() { if (container.clientWidth > 0) chart.applyOptions({ width: container.clientWidth }); }).observe(container);
+    });
+}
+
 
 document.getElementById('btn-add-new-trade')?.addEventListener('click', () => navigateTo('add-trades'));
 
@@ -637,7 +898,8 @@ function viewTrade(id) {
     const pnlColor = t.pnl >= 0 ? '#00c853' : '#ef5350';
     const pnlSign = t.pnl >= 0 ? '+' : '';
     const daysHeld = t.exitDate && t.entryDate ? Math.floor((new Date(t.exitDate) - new Date(t.entryDate)) / 86400000) : t.entryDate ? Math.floor((Date.now() - new Date(t.entryDate).getTime()) / 86400000) : 0;
-    const riskAmt = t.sl ? (t.entryPrice * t.entryQty * t.sl / 100) : 0;
+    const riskPerShare = t.sl ? Math.abs(t.entryPrice - t.sl) : 0;
+    const riskAmt = riskPerShare * t.entryQty;
     const rMultiple = riskAmt ? (t.pnl / riskAmt).toFixed(2) : 'N/A';
 
     body.innerHTML = `
@@ -660,7 +922,7 @@ function viewTrade(id) {
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
             <div style="text-align:center"><div style="font-size:.65rem;color:#8892a0;font-weight:600;text-transform:uppercase">Days Held</div><div style="font-size:1rem;font-weight:700">${daysHeld}d</div></div>
-            <div style="text-align:center"><div style="font-size:.65rem;color:#8892a0;font-weight:600;text-transform:uppercase">SL %</div><div style="font-size:1rem;font-weight:700">${t.sl || 'N/A'}%</div></div>
+            <div style="text-align:center"><div style="font-size:.65rem;color:#8892a0;font-weight:600;text-transform:uppercase">SL ₹</div><div style="font-size:1rem;font-weight:700">${t.sl ? '₹' + t.sl.toFixed(2) : 'N/A'}</div></div>
             <div style="text-align:center"><div style="font-size:.65rem;color:#8892a0;font-weight:600;text-transform:uppercase">R-Multiple</div><div style="font-size:1rem;font-weight:700;color:${pnlColor}">${rMultiple}R</div></div>
             <div style="text-align:center"><div style="font-size:.65rem;color:#8892a0;font-weight:600;text-transform:uppercase">Risk ₹</div><div style="font-size:1rem;font-weight:700">₹${riskAmt.toFixed(0)}</div></div>
         </div>
@@ -693,7 +955,8 @@ function viewTrade(id) {
         }
         data[0] = entry;
         data[steps] = exit;
-        const slPrice = t.sl ? entry * (1 - t.sl / 100) : null;
+        const slPrice = t.sl || null;
+        const riskPerShareChart = slPrice ? Math.abs(entry - slPrice) : 0;
         const datasets = [{
             label: 'Price', data, fill: true, tension: 0.4, pointRadius: 0,
             borderColor: pnlColor, backgroundColor: t.pnl >= 0 ? 'rgba(0,200,83,0.08)' : 'rgba(239,83,80,0.08)', borderWidth: 2
@@ -703,12 +966,27 @@ function viewTrade(id) {
                 label: 'Stop Loss', data: Array(steps + 1).fill(slPrice),
                 borderColor: '#ef5350', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false
             });
+            // Add RR level lines: 1:1, 1:2, 1:3, 1:4
+            const rrColors = ['#26c6da', '#448aff', '#7c4dff', '#ff9100'];
+            const rrLabels = ['1:1 RR', '1:2 RR', '1:3 RR', '1:4 RR'];
+            for (let rr = 1; rr <= 4; rr++) {
+                const targetPrice = entry + (riskPerShareChart * rr);
+                datasets.push({
+                    label: rrLabels[rr - 1],
+                    data: Array(steps + 1).fill(targetPrice),
+                    borderColor: rrColors[rr - 1],
+                    borderDash: [4, 3],
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    fill: false
+                });
+            }
         }
         new Chart(ctx, {
             type: 'line', data: { labels, datasets },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: true, position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } } },
+                plugins: { legend: { display: true, position: 'top', labels: { font: { size: 9 }, boxWidth: 10, padding: 8 } } },
                 scales: {
                     x: { display: false },
                     y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { callback: v => '₹' + v, font: { size: 10 } } }
@@ -737,7 +1015,7 @@ function renderOpenPositions() {
     body.innerHTML = filtered.map(t => {
         const posSize = capital ? ((t.entryPrice * t.entryQty / capital) * 100).toFixed(2) : 'N/A';
         const daysHeld = Math.floor((new Date() - new Date(t.entryDate)) / 86400000);
-        const openRisk = t.sl ? (t.sl).toFixed(2) : 'N/A';
+        const openRisk = t.sl && capital ? (Math.abs(t.entryPrice - t.sl) * t.entryQty / capital * 100).toFixed(2) : 'N/A';
         const unrealizedPnl = 'N/A';
         const rMultiple = 'N/A';
         const portfolioGain = 'N/A';
@@ -745,8 +1023,8 @@ function renderOpenPositions() {
             <td><strong>${t.symbol}</strong></td>
             <td>${posSize}%</td>
             <td>${daysHeld}</td>
-            <td>${t.sl || 'N/A'}%</td>
-            <td>${openRisk}%</td>
+            <td>${t.sl ? '₹' + t.sl.toFixed(2) : 'N/A'}</td>
+            <td>${openRisk}${openRisk !== 'N/A' ? '%' : ''}</td>
             <td>${unrealizedPnl}</td>
             <td>${rMultiple}</td>
             <td>${portfolioGain}</td>
@@ -877,6 +1155,18 @@ function updateDashboard() {
     const bigLoss = losses.length ? losses.reduce((min, t) => t.pnl < min.pnl ? t : min) : null;
     document.getElementById('stat-bigwin').textContent = bigWin ? `₹${bigWin.pnl.toFixed(0)} / ${bigWin.pnlPct.toFixed(1)}%` : '0 / 0%';
     document.getElementById('stat-bigloss').textContent = bigLoss ? `₹${bigLoss.pnl.toFixed(0)} / ${bigLoss.pnlPct.toFixed(1)}%` : '0 / 0%';
+    // Render charges from stored P&L data
+    const charges = Store.get('charges', { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 });
+    const fmt = v => v > 0 ? '₹' + v.toFixed(2) : 'N/A';
+    document.getElementById('stat-charges').textContent = charges.total > 0 ? '₹' + charges.total.toFixed(2) : '0.00';
+    document.getElementById('stat-brokerage').textContent = fmt(charges.brokerage);
+    document.getElementById('stat-gst').textContent = fmt(charges.gst);
+    document.getElementById('stat-stt').textContent = fmt(charges.stt);
+    document.getElementById('stat-sebi').textContent = fmt(charges.sebi);
+    document.getElementById('stat-exchange').textContent = fmt(charges.exchange);
+    document.getElementById('stat-stamp').textContent = fmt(charges.stamp);
+    document.getElementById('stat-ipft').textContent = fmt(charges.ipft);
+    document.getElementById('stat-other').textContent = fmt(charges.other);
 
     // Render charts
     renderDashboardCharts(trades, winning, losing, unknown);
@@ -1092,7 +1382,7 @@ function editTrade(id) {
             <div class="form-group"><label>Exit Date</label><input type="date" id="edit-exit-date" value="${trade.exitDate || ''}"></div>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>SL (%)</label><input type="number" id="edit-sl" value="${trade.sl || ''}"></div>
+            <div class="form-group"><label>Stop Loss Price (₹)</label><input type="number" id="edit-sl" value="${trade.sl || ''}" step="0.01"></div>
             <div class="form-group"><label>Status</label><select id="edit-status"><option ${trade.status === 'Closed' ? 'selected' : ''}>Closed</option><option ${trade.status === 'Open' ? 'selected' : ''}>Open</option></select></div>
         </div>
         <div class="form-group"><label>Notes</label><textarea id="edit-notes">${trade.notes || ''}</textarea></div>
@@ -1116,7 +1406,7 @@ function editTrade(id) {
         trade.exitPrice = xp;
         trade.exitQty = parseInt(document.getElementById('edit-exit-qty').value) || eq;
         trade.exitDate = document.getElementById('edit-exit-date').value;
-        trade.sl = parseFloat(document.getElementById('edit-sl').value) || 5;
+        trade.sl = parseFloat(document.getElementById('edit-sl').value) || null;
         trade.status = document.getElementById('edit-status').value;
         trade.notes = document.getElementById('edit-notes').value;
         trade.pnl = xp ? ((xp - ep) * eq) : 0;
