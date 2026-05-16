@@ -1155,10 +1155,63 @@ function updateDashboard() {
     const bigLoss = losses.length ? losses.reduce((min, t) => t.pnl < min.pnl ? t : min) : null;
     document.getElementById('stat-bigwin').textContent = bigWin ? `₹${bigWin.pnl.toFixed(0)} / ${bigWin.pnlPct.toFixed(1)}%` : '0 / 0%';
     document.getElementById('stat-bigloss').textContent = bigLoss ? `₹${bigLoss.pnl.toFixed(0)} / ${bigLoss.pnlPct.toFixed(1)}%` : '0 / 0%';
-    // Render charges from stored P&L data
-    const charges = Store.get('charges', { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 });
-    const fmt = v => v > 0 ? '₹' + v.toFixed(2) : 'N/A';
-    document.getElementById('stat-charges').textContent = charges.total > 0 ? '₹' + charges.total.toFixed(2) : '0.00';
+    // --- Auto-calculate charges from trades using broker formulas ---
+    const chargesFromPnl = Store.get('charges', { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 });
+
+    // Indian broker charge rates (Equity Delivery)
+    const BROKER_CHARGES = {
+        zerodha:  { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 15.93 },
+        groww:    { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 15.93 },
+        upstox:   { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 18.50 },
+        angelone: { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 20 },
+        dhan:     { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 15.93 },
+        default:  { brokerage: 0, sttBuy: 0.001, sttSell: 0.001, exchange: 0.0000345, sebi: 0.000001, stamp: 0.00015, ipft: 0.000001, dp: 15.93 }
+    };
+
+    let calcCharges = { brokerage: 0, gst: 0, stt: 0, sebi: 0, exchange: 0, stamp: 0, ipft: 0, other: 0, total: 0 };
+    let sellTradeCount = 0;
+
+    trades.forEach(t => {
+        const brokerKey = (t.broker || 'default').toLowerCase().replace(/\s+/g, '');
+        const rates = BROKER_CHARGES[brokerKey] || BROKER_CHARGES.default;
+        const buyTurnover = t.entryPrice * (t.entryQty || 0);
+        const sellTurnover = t.exitPrice ? (t.exitPrice * (t.exitQty || t.entryQty)) : 0;
+        const totalTurnover = buyTurnover + sellTurnover;
+
+        // Brokerage (₹0 for delivery on most brokers, ₹20/order for intraday)
+        calcCharges.brokerage += rates.brokerage * totalTurnover;
+
+        // STT: 0.1% on both buy & sell for delivery
+        calcCharges.stt += (buyTurnover * rates.sttBuy) + (sellTurnover * rates.sttSell);
+
+        // Exchange/Transaction charges
+        calcCharges.exchange += totalTurnover * rates.exchange;
+
+        // SEBI charges
+        calcCharges.sebi += totalTurnover * rates.sebi;
+
+        // Stamp Duty (on buy side only)
+        calcCharges.stamp += buyTurnover * rates.stamp;
+
+        // IPFT
+        calcCharges.ipft += totalTurnover * rates.ipft;
+
+        // DP charges (per sell transaction)
+        if (sellTurnover > 0) {
+            calcCharges.other += rates.dp;
+            sellTradeCount++;
+        }
+    });
+
+    // GST = 18% on (Brokerage + Exchange + SEBI)
+    calcCharges.gst = (calcCharges.brokerage + calcCharges.exchange + calcCharges.sebi) * 0.18;
+    calcCharges.total = calcCharges.brokerage + calcCharges.gst + calcCharges.stt + calcCharges.sebi + calcCharges.exchange + calcCharges.stamp + calcCharges.ipft + calcCharges.other;
+
+    // Use P&L file charges if they exist and are larger, otherwise use calculated
+    const charges = chargesFromPnl.total > calcCharges.total ? chargesFromPnl : calcCharges;
+
+    const fmt = v => v > 0 ? '₹' + v.toFixed(2) : '₹0.00';
+    document.getElementById('stat-charges').textContent = charges.total > 0 ? '₹' + charges.total.toFixed(2) : '₹0.00';
     document.getElementById('stat-brokerage').textContent = fmt(charges.brokerage);
     document.getElementById('stat-gst').textContent = fmt(charges.gst);
     document.getElementById('stat-stt').textContent = fmt(charges.stt);
@@ -1166,7 +1219,7 @@ function updateDashboard() {
     document.getElementById('stat-exchange').textContent = fmt(charges.exchange);
     document.getElementById('stat-stamp').textContent = fmt(charges.stamp);
     document.getElementById('stat-ipft').textContent = fmt(charges.ipft);
-    document.getElementById('stat-other').textContent = fmt(charges.other);
+    document.getElementById('stat-other').textContent = charges.other > 0 ? '₹' + charges.other.toFixed(2) + ' (DP)' : '₹0.00';
 
     // Render charts
     renderDashboardCharts(trades, winning, losing, unknown);
